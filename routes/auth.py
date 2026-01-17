@@ -7,6 +7,8 @@ from security.session import create_session, revoke_session, revoke_all_sessions
 from utils.audit import log_event
 from utils.auth_context import login_required
 from security.bruteforce import is_locked, register_failure, reset_attempts
+from security.rate_limit import check_and_increment_login_rate
+
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -56,6 +58,12 @@ def login():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
+
+    allowed, retry_after = check_and_increment_login_rate()
+    if not allowed:
+        log_event("LOGIN_RATE_LIMIT", metadata={"email": email, "retry_after": retry_after})
+        return jsonify(error="Too many login requests. Slow down.", retry_after_seconds=retry_after), 429
+
 
     locked, seconds_left = is_locked(email)
     if locked:

@@ -31,5 +31,9 @@ class Config:
     MAX_LOGIN_ATTEMPTS = 5
     LOCKOUT_MINUTES = 1
 
+    # Simple IP rate limit for login endpoint
+    LOGIN_RATE_WINDOW_SECONDS = 60      # window size
+    LOGIN_RATE_MAX_REQUESTS = 15        # max login requests per IP per window
+
     # Basic app settings
     DEBUG = False
