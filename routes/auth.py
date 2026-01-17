@@ -6,6 +6,8 @@ from security.password import hash_password, verify_password
 from security.session import create_session, revoke_session, revoke_all_sessions
 from utils.audit import log_event
 from utils.auth_context import login_required
+from security.bruteforce import is_locked, register_failure, reset_attempts
+
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -55,10 +57,24 @@ def login():
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
 
+    locked, seconds_left = is_locked(email)
+    if locked:
+        log_event("LOGIN_LOCKED", metadata={"email": email, "seconds_left": seconds_left})
+        return jsonify(error="Account temporarily locked. Try again later.", retry_after_seconds=seconds_left), 429
+
     user = User.query.filter_by(email=email).first()
     if not user or not verify_password(password, user.password_hash):
-        log_event("LOGIN_FAIL", user_id=user.id if user else None, metadata={"email": email})
+        fail_count, locked_now = register_failure(email)
+        log_event(
+            "LOGIN_FAIL",
+            user_id=user.id if user else None,
+            metadata={"email": email, "fail_count": fail_count, "locked_now": locked_now}
+        )
+        if locked_now:
+            return jsonify(error="Too many failed attempts. Account locked.", lockout_minutes=current_app.config.get("LOCKOUT_MINUTES", 10)), 429
         return jsonify(error="Invalid credentials"), 401
+
+    reset_attempts(email)
 
     # Rotate: revoke any existing sessions for this user
     revoked_count = revoke_all_sessions(user.id)

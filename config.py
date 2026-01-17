@@ -27,5 +27,9 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = False  # set True when using HTTPS
 
+    # Brute-force protection
+    MAX_LOGIN_ATTEMPTS = 5
+    LOCKOUT_MINUTES = 1
+
     # Basic app settings
     DEBUG = False
