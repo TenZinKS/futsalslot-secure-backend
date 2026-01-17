@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask,request,g
 from config import Config
 from routes import health_bp, auth_bp,admin_bp,booking_bp
 
@@ -6,6 +6,7 @@ from models import db
 from flask_migrate import Migrate
 from utils.seed import seed_roles
 from utils.auth_context import load_current_user
+from security.csrf import require_csrf
 
 
 def create_app():
@@ -17,8 +18,6 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(booking_bp)
-
-
 
     # Database init
     db.init_app(app)
@@ -33,6 +32,37 @@ def create_app():
     @app.before_request
     def _load_user():
         load_current_user()
+
+    CSRF_EXEMPT_PATHS = {
+    "/auth/login",
+    "/auth/register",
+    "/health",
+    }
+
+    @app.before_request
+    def _csrf_protect():
+        # Only protect state-changing requests
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            # Exempt auth bootstrap endpoints
+            if request.path in CSRF_EXEMPT_PATHS:
+                return None
+
+            # Only enforce CSRF if user is already authenticated (cookie session)
+            if getattr(g, "user", None) is not None:
+                failure = require_csrf()
+                if failure:
+                    return failure
+    
+    @app.after_request
+    def add_security_headers(resp):
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        # CSP can be strict if you serve frontend separately; for API it's fine to keep minimal:
+        resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
+        return resp
+
 
     register_cli(app)
 
@@ -67,6 +97,9 @@ def register_cli(app):
         print(f"{user.email} promoted to ADMIN")
 
 #-------------------------
+
+
+
 
 if __name__ == "__main__":
     app = create_app()

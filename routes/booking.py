@@ -186,3 +186,94 @@ def cancel_booking(booking_id: int):
 
     log_event("BOOKING_CANCEL", user_id=g.user.id, entity="booking", entity_id=booking.id, metadata={"reason": reason})
     return jsonify(message="Cancelled"), 200
+
+# ---------- PLAYERS: view my bookings ----------
+@booking_bp.get("/bookings/me")
+@login_required
+def my_bookings():
+    # optional: status filter
+    status = request.args.get("status")  # CONFIRMED/CANCELLED
+    q = Booking.query.filter_by(user_id=g.user.id)
+    if status:
+        q = q.filter_by(status=status)
+
+    rows = q.order_by(Booking.created_at.desc()).all()
+
+    # Fetch slot info for each booking
+    slot_ids = [b.slot_id for b in rows]
+    slots = {s.id: s for s in Slot.query.filter(Slot.id.in_(slot_ids)).all()}
+
+    out = []
+    for b in rows:
+        s = slots.get(b.slot_id)
+        out.append({
+            "id": b.id,
+            "status": b.status,
+            "created_at": b.created_at.isoformat(),
+            "cancelled_at": b.cancelled_at.isoformat() if b.cancelled_at else None,
+            "slot": {
+                "slot_id": b.slot_id,
+                "court_id": s.court_id if s else None,
+                "start_time": s.start_time.isoformat() if s else None,
+                "end_time": s.end_time.isoformat() if s else None,
+                "price": s.price if s else None,
+            }
+        })
+    return jsonify(out), 200
+
+
+# ---------- STAFF/ADMIN: deactivate slot ----------
+@booking_bp.post("/slots/<int:slot_id>/deactivate")
+@require_roles("ADMIN", "STAFF")
+def deactivate_slot(slot_id: int):
+    slot = Slot.query.get(slot_id)
+    if not slot:
+        return jsonify(error="Slot not found"), 404
+
+    slot.is_active = False
+    db.session.commit()
+
+    log_event("SLOT_DEACTIVATE", user_id=g.user.id, entity="slot", entity_id=slot_id)
+    return jsonify(message="Slot deactivated"), 200
+
+# ---------- STAFF/ADMIN: list all bookings ----------
+@booking_bp.get("/bookings")
+@require_roles("ADMIN", "STAFF")
+def list_all_bookings():
+    status = request.args.get("status")
+    q = Booking.query
+    if status:
+        q = q.filter_by(status=status)
+
+    rows = q.order_by(Booking.created_at.desc()).limit(200).all()
+    return jsonify([
+        {
+            "id": b.id,
+            "user_id": b.user_id,
+            "slot_id": b.slot_id,
+            "status": b.status,
+            "created_at": b.created_at.isoformat(),
+        } for b in rows
+    ]), 200
+
+# ---------- ADMIN: cancel any booking ----------
+@booking_bp.post("/bookings/<int:booking_id>/admin_cancel")
+@require_roles("ADMIN")
+def admin_cancel_booking(booking_id: int):
+    data = request.get_json(silent=True) or {}
+    reason = (data.get("reason") or "").strip() or "Admin cancellation"
+
+    booking = Booking.query.get(booking_id)
+    if not booking:
+        return jsonify(error="Booking not found"), 404
+
+    if booking.status != "CONFIRMED":
+        return jsonify(error="Booking not cancellable"), 400
+
+    booking.status = "CANCELLED"
+    booking.cancelled_at = datetime.utcnow()
+    booking.cancel_reason = reason
+    db.session.commit()
+
+    log_event("ADMIN_BOOKING_CANCEL", user_id=g.user.id, entity="booking", entity_id=booking.id, metadata={"reason": reason})
+    return jsonify(message="Cancelled by admin"), 200

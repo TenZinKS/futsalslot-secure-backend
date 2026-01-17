@@ -8,7 +8,7 @@ from utils.audit import log_event
 from utils.auth_context import login_required
 from security.bruteforce import is_locked, register_failure, reset_attempts
 from security.rate_limit import check_and_increment_login_rate
-
+from security.csrf import issue_csrf_token
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -102,6 +102,8 @@ def login():
         max_age=max_age,
         path="/",
     )
+
+    resp = issue_csrf_token(resp)
 
     log_event("LOGIN_SUCCESS", user_id=user.id, metadata={"revoked_sessions": revoked_count})
     return resp, 200
