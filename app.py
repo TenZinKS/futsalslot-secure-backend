@@ -1,6 +1,6 @@
 from flask import Flask
 from config import Config
-from routes import health_bp, auth_bp,admin_bp
+from routes import health_bp, auth_bp,admin_bp,booking_bp
 
 from models import db
 from flask_migrate import Migrate
@@ -16,6 +16,8 @@ def create_app():
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(booking_bp)
+
 
 
     # Database init

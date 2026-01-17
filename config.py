@@ -35,5 +35,9 @@ class Config:
     LOGIN_RATE_WINDOW_SECONDS = 60      # window size
     LOGIN_RATE_MAX_REQUESTS = 15        # max login requests per IP per window
 
+    #Cancellation policy
+    CANCEL_CUTOFF_HOURS = 12
+
+
     # Basic app settings
     DEBUG = False
