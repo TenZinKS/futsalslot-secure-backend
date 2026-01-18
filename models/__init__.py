@@ -7,4 +7,6 @@ from .ip_rate_limit import IpRateLimit
 from .court import Court
 from .slot import Slot
 from .booking import Booking
+from .payment import Payment
+
 

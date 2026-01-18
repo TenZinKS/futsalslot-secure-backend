@@ -1,6 +1,9 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask,request,g
 from config import Config
-from routes import health_bp, auth_bp,admin_bp,booking_bp
+from routes import health_bp, auth_bp,admin_bp,booking_bp,payments_bp,webhook_bp
 
 from models import db
 from flask_migrate import Migrate
@@ -18,6 +21,8 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(booking_bp)
+    app.register_blueprint(payments_bp)
+    app.register_blueprint(webhook_bp)
 
     # Database init
     db.init_app(app)
@@ -27,7 +32,11 @@ def create_app():
 
     # Seed default roles at startup (safe & idempotent)
     with app.app_context():
-        seed_roles()
+        try:
+            seed_roles()
+        except Exception:
+            # DB might not be initialized yet (e.g., first migration)
+            pass
 
     @app.before_request
     def _load_user():
@@ -63,9 +72,7 @@ def create_app():
         resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
         return resp
 
-
     register_cli(app)
-
 
     return app
 

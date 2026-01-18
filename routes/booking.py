@@ -109,10 +109,14 @@ def list_slots():
 
     slots = q.order_by(Slot.start_time.asc()).all()
 
-    # mark availability by checking if booking exists
+    # mark availability:
+    # slot is NOT available if there is a booking in PENDING_PAYMENT OR CONFIRMED
     slot_ids = [s.id for s in slots]
     booked = set(
-        r.slot_id for r in Booking.query.filter(Booking.slot_id.in_(slot_ids), Booking.status == "CONFIRMED").all()
+        r.slot_id for r in Booking.query.filter(
+            Booking.slot_id.in_(slot_ids),
+            Booking.status.in_(["PENDING_PAYMENT", "CONFIRMED"])
+        ).all()
     )
 
     return jsonify([
@@ -141,18 +145,18 @@ def create_booking():
     if not slot or not slot.is_active:
         return jsonify(error="Slot not found"), 404
 
-    # Optional: prevent booking past slots
+    # prevent booking past/started slots
     if slot.start_time <= datetime.utcnow():
         return jsonify(error="Cannot book past/started slots"), 400
 
-    booking = Booking(user_id=g.user.id, slot_id=slot_id, status="CONFIRMED")
+    # create booking as pending payment
+    booking = Booking(user_id=g.user.id, slot_id=slot_id, status="PENDING_PAYMENT")
     db.session.add(booking)
 
     try:
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
-        # Unique constraint uq_booking_slot_once triggers here
         log_event("BOOKING_FAIL_ALREADY_BOOKED", user_id=g.user.id, entity="slot", entity_id=slot_id)
         return jsonify(error="Slot already booked"), 409
 
@@ -160,7 +164,7 @@ def create_booking():
     return jsonify(id=booking.id, status=booking.status), 201
 
 
-# ---------- PLAYERS: cancel booking (policy window) ----------
+# ---------- PLAYERS: cancel booking ----------
 @booking_bp.post("/bookings/<int:booking_id>/cancel")
 @login_required
 def cancel_booking(booking_id: int):
@@ -171,13 +175,15 @@ def cancel_booking(booking_id: int):
     if not booking or booking.user_id != g.user.id:
         return jsonify(error="Booking not found"), 404
 
-    if booking.status != "CONFIRMED":
+    if booking.status not in ("PENDING_PAYMENT", "CONFIRMED"):
         return jsonify(error="Booking not cancellable"), 400
 
-    slot = Slot.query.get(booking.slot_id)
-    cutoff_hours = current_app.config.get("CANCEL_CUTOFF_HOURS", 12)
-    if slot and (slot.start_time - datetime.utcnow()).total_seconds() < cutoff_hours * 3600:
-        return jsonify(error=f"Cancellation not allowed within {cutoff_hours} hours of start"), 403
+    # If booking is CONFIRMED, apply cutoff policy
+    if booking.status == "CONFIRMED":
+        slot = Slot.query.get(booking.slot_id)
+        cutoff_hours = current_app.config.get("CANCEL_CUTOFF_HOURS", 12)
+        if slot and (slot.start_time - datetime.utcnow()).total_seconds() < cutoff_hours * 3600:
+            return jsonify(error=f"Cancellation not allowed within {cutoff_hours} hours of start"), 403
 
     booking.status = "CANCELLED"
     booking.cancelled_at = datetime.utcnow()
@@ -187,19 +193,18 @@ def cancel_booking(booking_id: int):
     log_event("BOOKING_CANCEL", user_id=g.user.id, entity="booking", entity_id=booking.id, metadata={"reason": reason})
     return jsonify(message="Cancelled"), 200
 
+
 # ---------- PLAYERS: view my bookings ----------
 @booking_bp.get("/bookings/me")
 @login_required
 def my_bookings():
-    # optional: status filter
-    status = request.args.get("status")  # CONFIRMED/CANCELLED
+    status = request.args.get("status")  # PENDING_PAYMENT/CONFIRMED/CANCELLED
     q = Booking.query.filter_by(user_id=g.user.id)
     if status:
         q = q.filter_by(status=status)
 
     rows = q.order_by(Booking.created_at.desc()).all()
 
-    # Fetch slot info for each booking
     slot_ids = [b.slot_id for b in rows]
     slots = {s.id: s for s in Slot.query.filter(Slot.id.in_(slot_ids)).all()}
 
@@ -236,6 +241,7 @@ def deactivate_slot(slot_id: int):
     log_event("SLOT_DEACTIVATE", user_id=g.user.id, entity="slot", entity_id=slot_id)
     return jsonify(message="Slot deactivated"), 200
 
+
 # ---------- STAFF/ADMIN: list all bookings ----------
 @booking_bp.get("/bookings")
 @require_roles("ADMIN", "STAFF")
@@ -255,6 +261,7 @@ def list_all_bookings():
             "created_at": b.created_at.isoformat(),
         } for b in rows
     ]), 200
+
 
 # ---------- ADMIN: cancel any booking ----------
 @booking_bp.post("/bookings/<int:booking_id>/admin_cancel")
