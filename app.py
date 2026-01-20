@@ -10,12 +10,20 @@ from flask_migrate import Migrate
 from utils.seed import seed_roles
 from utils.auth_context import load_current_user
 from security.csrf import require_csrf
+from routes.pay_pages import pay_pages_bp
 
+
+from flask_cors import CORS
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-
+    CORS(
+        app,
+        supports_credentials=True,
+        origins=["http://localhost:5173"]
+    )
+    
     # Register routes
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
@@ -23,6 +31,8 @@ def create_app():
     app.register_blueprint(booking_bp)
     app.register_blueprint(payments_bp)
     app.register_blueprint(webhook_bp)
+    app.register_blueprint(pay_pages_bp)
+
 
     # Database init
     db.init_app(app)
