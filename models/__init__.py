@@ -8,5 +8,6 @@ from .court import Court
 from .slot import Slot
 from .booking import Booking
 from .payment import Payment
+from .password_history import PasswordHistory
 
 

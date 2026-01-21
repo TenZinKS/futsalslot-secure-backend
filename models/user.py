@@ -15,10 +15,13 @@ class User(db.Model):
 
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
+    full_name = db.Column(db.String(120), nullable=True)
+    phone_number = db.Column(db.String(30), nullable=True)
 
     # future fields for MFA + lockouts (we’ll implement later)
     mfa_enabled = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    password_changed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     roles = db.relationship("Role", secondary=user_roles, back_populates="users")
 

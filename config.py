@@ -38,6 +38,10 @@ class Config:
     #Cancellation policy
     CANCEL_CUTOFF_HOURS = 12
 
+    # Password policy
+    PASSWORD_HISTORY_COUNT = 2          # block last 2 passwords
+    PASSWORD_MAX_AGE_DAYS = 90          # password expires after 90 days
+    PROFILE_REQUIRED_FIELDS = ["full_name", "phone_number"]  # required before booking
 
     # Basic app settings
     DEBUG = False

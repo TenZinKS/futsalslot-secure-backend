@@ -6,6 +6,7 @@ from models import db
 from models.court import Court
 from models.slot import Slot
 from models.booking import Booking
+from models.user import User
 from security.rbac import require_roles
 from utils.auth_context import login_required
 from utils.audit import log_event
@@ -15,6 +16,21 @@ booking_bp = Blueprint("booking", __name__)
 def _parse_iso(dt_str: str):
     # Expect ISO format like "2026-01-20T18:00:00"
     return datetime.fromisoformat(dt_str)
+
+
+def _profile_required_fields():
+    fields = current_app.config.get("PROFILE_REQUIRED_FIELDS", ["full_name", "phone_number"])
+    if not isinstance(fields, (list, tuple)):
+        return ["full_name", "phone_number"]
+    return [f for f in fields if isinstance(f, str)]
+
+
+def _is_profile_complete(user) -> bool:
+    for field in _profile_required_fields():
+        value = getattr(user, field, None)
+        if not isinstance(value, str) or not value.strip():
+            return False
+    return True
 
 # ---------- STAFF/ADMIN: manage courts ----------
 @booking_bp.post("/courts")
@@ -141,6 +157,12 @@ def create_booking():
     if not slot_id:
         return jsonify(error="slot_id required"), 400
 
+    if not _is_profile_complete(g.user):
+        return jsonify(
+            error="Profile incomplete",
+            profile_required_fields=_profile_required_fields(),
+        ), 403
+
     slot = Slot.query.get(slot_id)
     if not slot or not slot.is_active:
         return jsonify(error="Slot not found"), 404
@@ -252,10 +274,15 @@ def list_all_bookings():
         q = q.filter_by(status=status)
 
     rows = q.order_by(Booking.created_at.desc()).limit(200).all()
+    user_ids = [b.user_id for b in rows]
+    users = {u.id: u for u in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+
     return jsonify([
         {
             "id": b.id,
             "user_id": b.user_id,
+            "user_full_name": users.get(b.user_id).full_name if users.get(b.user_id) else None,
+            "user_phone_number": users.get(b.user_id).phone_number if users.get(b.user_id) else None,
             "slot_id": b.slot_id,
             "status": b.status,
             "created_at": b.created_at.isoformat(),
