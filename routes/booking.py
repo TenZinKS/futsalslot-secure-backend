@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import math
+import re
 from sqlalchemy.exc import IntegrityError
 
 from flask import Blueprint, request, jsonify, current_app, g
@@ -16,6 +18,32 @@ booking_bp = Blueprint("booking", __name__)
 def _parse_iso(dt_str: str):
     # Expect ISO format like "2026-01-20T18:00:00"
     return datetime.fromisoformat(dt_str)
+
+
+def _parse_google_maps_coords(maps_link: str):
+    if not isinstance(maps_link, str) or not maps_link.strip():
+        return None
+    link = maps_link.strip()
+    match = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", link)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    match = re.search(r"[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)", link)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    return None
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlng / 2) ** 2
+    )
+    return 2 * r * math.asin(math.sqrt(a))
 
 
 def _profile_required_fields():
@@ -39,10 +67,35 @@ def create_court():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     location = (data.get("location") or "").strip() or None
+    description = (data.get("description") or "").strip()
+    maps_link = (data.get("maps_link") or "").strip() or None
+    latitude = data.get("latitude")
+    longitude = data.get("longitude")
     if not name:
         return jsonify(error="Court name required"), 400
+    if not location:
+        return jsonify(error="Court location required"), 400
+    if not description:
+        return jsonify(error="Court description required"), 400
+    if latitude is not None and longitude is not None:
+        try:
+            latitude = float(latitude)
+            longitude = float(longitude)
+        except (TypeError, ValueError):
+            return jsonify(error="Invalid latitude/longitude"), 400
+    elif maps_link:
+        parsed = _parse_google_maps_coords(maps_link)
+        if parsed:
+            latitude, longitude = parsed
 
-    c = Court(name=name, location=location)
+    c = Court(
+        name=name,
+        location=location,
+        description=description,
+        maps_link=maps_link,
+        latitude=latitude,
+        longitude=longitude,
+    )
     db.session.add(c)
     try:
         db.session.commit()
@@ -51,17 +104,54 @@ def create_court():
         return jsonify(error="Court name already exists"), 409
 
     log_event("COURT_CREATE", user_id=g.user.id, entity="court", entity_id=c.id)
-    return jsonify(id=c.id, name=c.name, location=c.location), 201
+    return jsonify(
+        id=c.id,
+        name=c.name,
+        location=c.location,
+        description=c.description,
+        maps_link=c.maps_link,
+        latitude=c.latitude,
+        longitude=c.longitude,
+    ), 201
 
 
 @booking_bp.get("/courts")
 @login_required
 def list_courts():
-    courts = Court.query.filter_by(is_active=True).all()
-    return jsonify([
-        {"id": c.id, "name": c.name, "location": c.location}
-        for c in courts
-    ]), 200
+    location_query = (request.args.get("location") or "").strip()
+    user_lat = request.args.get("user_lat", type=float)
+    user_lng = request.args.get("user_lng", type=float)
+    max_distance_km = request.args.get("max_distance_km", type=float)
+
+    q = Court.query.filter_by(is_active=True)
+    if location_query:
+        q = q.filter(Court.location.ilike(f"%{location_query}%"))
+
+    courts = q.all()
+    out = []
+    for c in courts:
+        distance_km = None
+        if user_lat is not None and user_lng is not None and c.latitude is not None and c.longitude is not None:
+            distance_km = _haversine_km(user_lat, user_lng, c.latitude, c.longitude)
+            if max_distance_km is not None and distance_km > max_distance_km:
+                continue
+        elif max_distance_km is not None:
+            continue
+
+        out.append(
+            {
+                "id": c.id,
+                "name": c.name,
+                "location": c.location,
+                "description": c.description,
+                "maps_link": c.maps_link,
+                "latitude": c.latitude,
+                "longitude": c.longitude,
+                "distance_km": distance_km,
+            }
+        )
+
+    return jsonify(out), 200
 
 
 # ---------- STAFF/ADMIN: create slots ----------
@@ -288,7 +378,6 @@ def list_all_bookings():
             "created_at": b.created_at.isoformat(),
         } for b in rows
     ]), 200
-
 
 # ---------- ADMIN: cancel any booking ----------
 @booking_bp.post("/bookings/<int:booking_id>/admin_cancel")
