@@ -1,7 +1,7 @@
 from models import db
 from models.user import Role
 
-DEFAULT_ROLES = ["PLAYER", "STAFF", "ADMIN"]
+DEFAULT_ROLES = ["PLAYER", "ADMIN", "SUPER_ADMIN"]
 
 def seed_roles():
     existing = {r.name for r in Role.query.all()}

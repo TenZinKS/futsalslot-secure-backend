@@ -17,12 +17,8 @@ depends_on = None
 
 
 def upgrade():
-    with op.batch_alter_table('courts', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('description', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('maps_link', sa.String(length=255), nullable=True))
+    pass
 
 
 def downgrade():
-    with op.batch_alter_table('courts', schema=None) as batch_op:
-        batch_op.drop_column('maps_link')
-        batch_op.drop_column('description')
+    pass

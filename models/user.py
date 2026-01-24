@@ -16,7 +16,7 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     full_name = db.Column(db.String(120), nullable=True)
-    phone_number = db.Column(db.String(30), nullable=True)
+    phone_number = db.Column(db.String(30), unique=True, nullable=True, index=True)
 
     # future fields for MFA + lockouts (we’ll implement later)
     mfa_enabled = db.Column(db.Boolean, default=False, nullable=False)
@@ -29,6 +29,6 @@ class Role(db.Model):
     __tablename__ = "roles"
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)  # e.g. PLAYER, STAFF, ADMIN
+    name = db.Column(db.String(50), unique=True, nullable=False)  # e.g. PLAYER, ADMIN
 
     users = db.relationship("User", secondary=user_roles, back_populates="roles")

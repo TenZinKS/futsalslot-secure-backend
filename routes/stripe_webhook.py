@@ -25,7 +25,8 @@ def stripe_webhook():
     except Exception:
         return jsonify(error="Invalid webhook signature"), 400
 
-    if event["type"] == "checkout.session.completed":
+    event_type = event.get("type")
+    if event_type in ("checkout.session.completed", "checkout.session.expired"):
         session = event["data"]["object"]
         session_id = session.get("id")
         meta = session.get("metadata", {}) or {}
@@ -39,15 +40,31 @@ def stripe_webhook():
         if not payment and session_id:
             payment = Payment.query.filter_by(stripe_session_id=session_id).first()
 
-        if payment and payment.status != "PAID":
-            payment.status = "PAID"
-            payment.paid_at = datetime.utcnow()
+        booking = Booking.query.get(payment.booking_id) if payment and payment.booking_id else None
 
-            booking = Booking.query.get(payment.booking_id)
-            if booking and booking.status != "CONFIRMED":
-                booking.status = "CONFIRMED"
+        if event_type == "checkout.session.completed":
+            if payment and payment.status != "PAID":
+                slot_id = meta.get("slot_id")
+                user_id = meta.get("user_id")
+                if slot_id and user_id:
+                    existing = Booking.query.filter_by(slot_id=int(slot_id), status="CONFIRMED").first()
+                    if existing:
+                        payment.status = "FAILED"
+                    else:
+                        booking = Booking(user_id=int(user_id), slot_id=int(slot_id), status="CONFIRMED")
+                        db.session.add(booking)
+                        db.session.flush()
+                        payment.booking_id = booking.id
+                        payment.status = "PAID"
+                        payment.paid_at = datetime.utcnow()
 
-            db.session.commit()
-            log_event("PAYMENT_PAID", user_id=None, entity="payment", entity_id=payment.id, metadata={"stripe_session_id": session_id, "booking_id": payment.booking_id})
+                db.session.commit()
+                log_event("PAYMENT_PAID", user_id=None, entity="payment", entity_id=payment.id, metadata={"stripe_session_id": session_id, "booking_id": payment.booking_id})
+        else:
+            if payment and payment.status != "PAID":
+                payment.status = "FAILED"
+                db.session.delete(payment)
+                db.session.commit()
+                log_event("PAYMENT_EXPIRED", user_id=None, entity="payment", entity_id=payment.id, metadata={"stripe_session_id": session_id, "booking_id": payment.booking_id})
 
     return jsonify(received=True), 200

@@ -43,5 +43,19 @@ class Config:
     PASSWORD_MAX_AGE_DAYS = 90          # password expires after 90 days
     PROFILE_REQUIRED_FIELDS = ["full_name", "phone_number"]  # required before booking
 
+    # Admin signup (set in environment for production)
+    ADMIN_SIGNUP_CODE = os.getenv("ADMIN_SIGNUP_CODE")
+
+    # Admin dashboard URL (used in verification emails)
+    ADMIN_DASHBOARD_URL = os.getenv("ADMIN_DASHBOARD_URL")
+
+    # Email (SMTP)
+    SMTP_HOST = os.getenv("SMTP_HOST")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+    SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL")
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+
     # Basic app settings
     DEBUG = False

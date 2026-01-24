@@ -3,7 +3,7 @@ load_dotenv()
 
 from flask import Flask,request,g
 from config import Config
-from routes import health_bp, auth_bp,admin_bp,booking_bp,payments_bp,webhook_bp
+from routes import health_bp, auth_bp, admin_bp, booking_bp, court_bp, payments_bp, webhook_bp, super_admin_bp, support_bp
 
 from models import db
 from flask_migrate import Migrate
@@ -31,8 +31,11 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(booking_bp)
+    app.register_blueprint(court_bp)
     app.register_blueprint(payments_bp)
     app.register_blueprint(webhook_bp)
+    app.register_blueprint(super_admin_bp)
+    app.register_blueprint(support_bp)
     app.register_blueprint(pay_pages_bp)
     app.register_blueprint(audit_bp)
 
@@ -59,6 +62,8 @@ def create_app():
     CSRF_EXEMPT_PATHS = {
     "/auth/login",
     "/auth/register",
+    "/auth/admin/register",
+    "/auth/superadmin/login",
     "/health",
     }
 
@@ -116,6 +121,26 @@ def register_cli(app):
             db.session.commit()
 
         print(f"{user.email} promoted to ADMIN")
+
+    @app.cli.command("make-super-admin")
+    @click.argument("email")
+    def make_super_admin(email):
+        """Promote a user to SUPER_ADMIN by email (bootstrap)."""
+        user = User.query.filter_by(email=email.strip().lower()).first()
+        if not user:
+            print("User not found")
+            return
+
+        super_admin_role = Role.query.filter_by(name="SUPER_ADMIN").first()
+        if not super_admin_role:
+            super_admin_role = Role(name="SUPER_ADMIN")
+            db.session.add(super_admin_role)
+            db.session.commit()
+
+        user.roles = [super_admin_role]
+        db.session.commit()
+
+        print(f"{user.email} promoted to SUPER_ADMIN")
 
 #-------------------------
 

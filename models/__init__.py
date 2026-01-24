@@ -8,6 +8,6 @@ from .court import Court
 from .slot import Slot
 from .booking import Booking
 from .payment import Payment
+from .blocked_email import BlockedEmail
 from .password_history import PasswordHistory
-
-
+from .support_message import SupportMessage
