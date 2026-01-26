@@ -14,7 +14,6 @@ from routes.pay_pages import pay_pages_bp
 from routes.audit_logs import audit_bp
 
 
-
 from flask_cors import CORS
 
 def create_app():
@@ -23,7 +22,10 @@ def create_app():
     CORS(
         app,
         supports_credentials=True,
-        origins=["http://localhost:5173"]
+        origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
     )
     
     # Register routes

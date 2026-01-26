@@ -245,7 +245,19 @@ def verify_court(court_id: int):
     if status == "REJECTED":
         owner = User.query.get(court.owner_user_id)
         if owner:
-            owner.roles = [r for r in owner.roles if r.name == "SUPER_ADMIN"]
+            has_other_verified = (
+                Court.query
+                .filter(
+                    Court.owner_user_id == owner.id,
+                    Court.status == "VERIFIED",
+                    Court.id != court.id,
+                )
+                .first()
+                is not None
+            )
+            # Only remove ADMIN if this was their first (new) court verification attempt.
+            if not has_other_verified:
+                owner.roles = [r for r in owner.roles if r.name != "ADMIN"]
 
     db.session.commit()
 
