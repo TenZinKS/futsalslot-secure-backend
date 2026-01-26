@@ -11,3 +11,4 @@ from .payment import Payment
 from .blocked_email import BlockedEmail
 from .password_history import PasswordHistory
 from .support_message import SupportMessage
+from .login_otp import LoginOTP

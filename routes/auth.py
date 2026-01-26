@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app, g
+import hashlib
+import secrets
 
 from models import db
+from models.login_otp import LoginOTP
 from models.user import User, Role
 from models.court import Court
 from security.password import hash_password, verify_password
@@ -15,6 +18,7 @@ from utils.roles import filter_role_names
 from datetime import datetime, timedelta
 from models.password_history import PasswordHistory
 from security.password_policy import validate_password, password_strength
+from utils.emailer import send_email
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -62,6 +66,58 @@ def _record_password_history(user: User) -> None:
 
 def _normalize_text(value: str) -> str:
     return (value or "").strip().lower()
+
+
+def _hash_otp(value: str) -> str:
+    secret = current_app.config.get("SECRET_KEY", "")
+    return hashlib.sha256(f"{value}:{secret}".encode("utf-8")).hexdigest()
+
+
+def _generate_otp_code(length: int) -> str:
+    length = max(4, min(int(length or 6), 10))
+    return "".join(secrets.choice("0123456789") for _ in range(length))
+
+
+def _start_login_otp(user: User, purpose: str) -> tuple[str | None, str | None]:
+    now = datetime.utcnow()
+    length = current_app.config.get("OTP_LENGTH", 6)
+    ttl_seconds = current_app.config.get("OTP_TTL_SECONDS", 300)
+
+    # Invalidate any previous OTPs for this user/purpose
+    (
+        LoginOTP.query
+        .filter_by(user_id=user.id, purpose=purpose, consumed_at=None)
+        .update({"consumed_at": now})
+    )
+
+    code = _generate_otp_code(length)
+    otp_token = secrets.token_urlsafe(32)
+    otp = LoginOTP(
+        user_id=user.id,
+        purpose=purpose,
+        token_hash=_hash_otp(otp_token),
+        code_hash=_hash_otp(code),
+        created_at=now,
+        expires_at=now + timedelta(seconds=ttl_seconds),
+        ip=request.headers.get("X-Forwarded-For", request.remote_addr),
+        user_agent=(request.headers.get("User-Agent") or "")[:255],
+    )
+    db.session.add(otp)
+    db.session.flush()
+
+    minutes = max(1, int(ttl_seconds / 60))
+    subject = "Your FutsalSlot login code"
+    body = (
+        f"Your login code is {code}.\n\n"
+        f"It expires in {minutes} minute(s). If you didn't request this, you can ignore this email."
+    )
+    ok, error = send_email(user.email, subject, body)
+    if not ok:
+        db.session.rollback()
+        return None, error or "Email not configured"
+
+    db.session.commit()
+    return otp_token, None
 
 def _get_or_create_role(name: str) -> Role | None:
     if not name:
@@ -300,29 +356,17 @@ def login():
 
     reset_attempts(email)
 
-    # Rotate: revoke any existing sessions for this user
-    revoked_count = revoke_all_sessions(user.id)
+    otp_token, error = _start_login_otp(user, "LOGIN")
+    if not otp_token:
+        return jsonify(error="Email OTP not configured", details=error), 503
 
-    raw_token = create_session(user.id)
-    cookie_name = current_app.config.get("AUTH_COOKIE_NAME", "futsalslot_session")
-
-    max_age = current_app.config.get("SESSION_LIFETIME_SECONDS", 8 * 60 * 60)
-
-    resp = jsonify(message="Login OK")
-    resp.set_cookie(
-        cookie_name,
-        raw_token,
-        httponly=True,
-        secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
-        samesite=current_app.config.get("SESSION_COOKIE_SAMESITE", "Lax"),
-        max_age=max_age,
-        path="/",
-    )
-
-    resp = issue_csrf_token(resp)
-
-    log_event("LOGIN_SUCCESS", user_id=user.id, metadata={"revoked_sessions": revoked_count})
-    return resp, 200
+    log_event("LOGIN_OTP_SENT", user_id=user.id)
+    return jsonify(
+        message="OTP sent",
+        otp_required=True,
+        otp_token=otp_token,
+        otp_expires_in=current_app.config.get("OTP_TTL_SECONDS", 300),
+    ), 200
 
 
 @auth_bp.post("/admin/login")
@@ -388,27 +432,18 @@ def admin_login():
             ), 403
 
     reset_attempts(email)
-    revoked_count = revoke_all_sessions(user.id)
 
-    raw_token = create_session(user.id)
-    cookie_name = current_app.config.get("AUTH_COOKIE_NAME", "futsalslot_session")
-    max_age = current_app.config.get("SESSION_LIFETIME_SECONDS", 8 * 60 * 60)
+    otp_token, error = _start_login_otp(user, "ADMIN_LOGIN")
+    if not otp_token:
+        return jsonify(error="Email OTP not configured", details=error), 503
 
-    resp = jsonify(message="Admin login OK")
-    resp.set_cookie(
-        cookie_name,
-        raw_token,
-        httponly=True,
-        secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
-        samesite=current_app.config.get("SESSION_COOKIE_SAMESITE", "Lax"),
-        max_age=max_age,
-        path="/",
-    )
-
-    resp = issue_csrf_token(resp)
-
-    log_event("ADMIN_LOGIN_SUCCESS", user_id=user.id, metadata={"revoked_sessions": revoked_count})
-    return resp, 200
+    log_event("ADMIN_LOGIN_OTP_SENT", user_id=user.id)
+    return jsonify(
+        message="OTP sent",
+        otp_required=True,
+        otp_token=otp_token,
+        otp_expires_in=current_app.config.get("OTP_TTL_SECONDS", 300),
+    ), 200
 
 
 @auth_bp.post("/superadmin/login")
@@ -460,13 +495,66 @@ def superadmin_login():
 
     reset_attempts(email)
 
-    revoked_count = revoke_all_sessions(user.id)
+    otp_token, error = _start_login_otp(user, "SUPERADMIN_LOGIN")
+    if not otp_token:
+        return jsonify(error="Email OTP not configured", details=error), 503
 
+    log_event("SUPERADMIN_LOGIN_OTP_SENT", user_id=user.id)
+    return jsonify(
+        message="OTP sent",
+        otp_required=True,
+        otp_token=otp_token,
+        otp_expires_in=current_app.config.get("OTP_TTL_SECONDS", 300),
+    ), 200
+
+
+@auth_bp.post("/otp/verify")
+def verify_login_otp():
+    data = request.get_json(silent=True) or {}
+    otp_token = (data.get("otp_token") or "").strip()
+    code = (data.get("code") or "").strip()
+
+    if not otp_token or not code:
+        return jsonify(error="otp_token and code are required"), 400
+
+    token_hash = _hash_otp(otp_token)
+    otp = LoginOTP.query.filter_by(token_hash=token_hash).first()
+    if not otp:
+        return jsonify(error="Invalid or expired code"), 400
+
+    now = datetime.utcnow()
+    if otp.consumed_at is not None:
+        return jsonify(error="Invalid or expired code"), 400
+    if otp.expires_at <= now:
+        otp.consumed_at = now
+        db.session.commit()
+        return jsonify(error="Code expired"), 400
+
+    max_attempts = current_app.config.get("OTP_MAX_ATTEMPTS", 5)
+    if otp.attempts >= max_attempts:
+        return jsonify(error="Too many attempts. Request a new code."), 429
+
+    if otp.code_hash != _hash_otp(code):
+        otp.attempts += 1
+        if otp.attempts >= max_attempts:
+            otp.consumed_at = now
+        db.session.commit()
+        remaining = max(0, max_attempts - otp.attempts)
+        return jsonify(error="Invalid code", attempts_remaining=remaining), 401
+
+    otp.consumed_at = now
+    db.session.commit()
+
+    user = User.query.get(otp.user_id)
+    if not user:
+        return jsonify(error="User not found"), 404
+
+    revoked_count = revoke_all_sessions(user.id)
     raw_token = create_session(user.id)
     cookie_name = current_app.config.get("AUTH_COOKIE_NAME", "futsalslot_session")
     max_age = current_app.config.get("SESSION_LIFETIME_SECONDS", 8 * 60 * 60)
 
-    resp = jsonify(message="Super admin login OK")
+    resp = jsonify(message="Login OK")
     resp.set_cookie(
         cookie_name,
         raw_token,
@@ -476,10 +564,13 @@ def superadmin_login():
         max_age=max_age,
         path="/",
     )
-
     resp = issue_csrf_token(resp)
 
-    log_event("SUPERADMIN_LOGIN_SUCCESS", user_id=user.id, metadata={"revoked_sessions": revoked_count})
+    log_event(
+        "LOGIN_OTP_VERIFIED",
+        user_id=user.id,
+        metadata={"purpose": otp.purpose, "revoked_sessions": revoked_count},
+    )
     return resp, 200
 
 

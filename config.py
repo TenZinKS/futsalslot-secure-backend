@@ -57,5 +57,10 @@ class Config:
     SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
+    # Email OTP (post-login)
+    OTP_LENGTH = int(os.getenv("OTP_LENGTH", "6"))
+    OTP_TTL_SECONDS = int(os.getenv("OTP_TTL_SECONDS", "300"))  # 5 minutes
+    OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+
     # Basic app settings
     DEBUG = False
