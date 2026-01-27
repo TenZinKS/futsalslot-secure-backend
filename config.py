@@ -39,6 +39,12 @@ class Config:
     CANCEL_CUTOFF_HOURS = 12
 
     # Password policy
+    PASSWORD_MIN_LEN = 12
+    PASSWORD_MAX_LEN = 128
+    PASSWORD_REQUIRE_UPPER = True
+    PASSWORD_REQUIRE_LOWER = True
+    PASSWORD_REQUIRE_DIGIT = True
+    PASSWORD_REQUIRE_SYMBOL = True
     PASSWORD_HISTORY_COUNT = 2          # block last 2 passwords
     PASSWORD_MAX_AGE_DAYS = 90          # password expires after 90 days
     PROFILE_REQUIRED_FIELDS = ["full_name", "phone_number"]  # required before booking
