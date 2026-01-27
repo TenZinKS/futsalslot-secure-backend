@@ -16,13 +16,7 @@ def _get_ts_attr():
 @audit_bp.get("/audit-logs")
 @require_roles("ADMIN")
 def list_audit_logs():
-    """
-    Returns latest audit logs for admin review.
-    Optional query params:
-      - limit (default 200, max 500)
-      - action (exact match)
-      - user_id (int)
-    """
+    
     limit = request.args.get("limit", type=int) or 200
     limit = max(1, min(limit, 500))
 
