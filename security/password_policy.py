@@ -20,7 +20,6 @@ _DEFAULTS = {
     "PASSWORD_REQUIRE_SYMBOL": True,
 }
 
-
 def _cfg(name: str):
     if current_app is None:
         return _DEFAULTS[name]

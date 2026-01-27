@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from models.audit_log import AuditLog
 from security.rbac import require_roles
 
-audit_bp = Blueprint("audit", __name__, url_prefix="/admin")
+audit_bp = Blueprint("audit", __name__, url_prefix="/super-admin")
 
 
 def _get_ts_attr():
@@ -14,7 +14,7 @@ def _get_ts_attr():
 
 
 @audit_bp.get("/audit-logs")
-@require_roles("ADMIN")
+@require_roles("SUPER_ADMIN")
 def list_audit_logs():
     
     limit = request.args.get("limit", type=int) or 200
