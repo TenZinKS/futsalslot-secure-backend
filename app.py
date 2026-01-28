@@ -88,7 +88,6 @@ def create_app():
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer"
-        resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         # CSP can be strict if you serve frontend separately; for API it's fine to keep minimal:
         resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
         return resp
